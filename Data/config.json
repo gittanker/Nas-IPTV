@@ -1,0 +1,15 @@
+{
+  "timeout": 10,
+  "max_concurrent": 30,
+  "test_duration": 5,
+  "vlc_timeout": 15,
+  "vlc_path": "vlc",
+  "auto_classify": true,
+  "keep_unavailable": false,
+  "export_formats": [
+    "m3u"
+  ],
+  "apply_logo": true,
+  "epg_source": 0,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+}
