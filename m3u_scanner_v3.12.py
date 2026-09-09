@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════╗
-║           M3U源扫描整理工具 v3.0 - 终端版                     ║
-║     多源加载 | HTTP/VLC测速 | 台标EPG | 分类导出              ║
+║           M3U源扫描整理工具 v3.1 - 终端版                     ║
+║     6大分组 | 首字母排序 | 去重留快 | 自动删超时              ║
 ╚══════════════════════════════════════════════════════════════╝
 """
 
@@ -16,8 +16,8 @@ import asyncio
 import aiohttp
 import subprocess
 import threading
-import platform
 import shutil
+import platform
 import urllib.request
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -192,7 +192,6 @@ class LogoDB:
         Term.log("INFO", f"台标匹配: {matched}/{len(channels)} 个频道")
         return channels
 
-
 # ============ EPG管理器 ============
 class EPGManager:
     EPG_SOURCES = [
@@ -358,13 +357,12 @@ class Config:
         self.data[key] = value
         self.save()
 
-
 # ============ 数据模型 ============
 @dataclass
 class Channel:
     name: str
     url: str
-    group: str = "未分类"
+    group: str = "其他"
     logo: str = ""
     epg: str = ""
     tvg_id: str = ""
@@ -423,7 +421,7 @@ class M3UParser:
                 current.tvg_id = attrs.get('tvg-id', '')
                 current.tvg_name = attrs.get('tvg-name', '')
                 current.logo = attrs.get('tvg-logo', '')
-                current.group = attrs.get('group-title', '未分类')
+                current.group = attrs.get('group-title', '其他')
                 current.epg = attrs.get('x-tvg-url', '')
                 current.extra_attrs = attrs
                 name_match = re.search(r',([^,]*)$', line)
@@ -436,7 +434,7 @@ class M3UParser:
                 channels.append(current)
                 current = None
             elif not line.startswith('#') and not current and line.startswith(('http://', 'https://', 'rtmp://', 'rtsp://')):
-                channels.append(Channel(name=f"频道_{i}", url=line, group="未分类", source_file=source_name))
+                channels.append(Channel(name=f"频道_{i}", url=line, group="其他", source_file=source_name))
         return channels
 
     @staticmethod
@@ -457,7 +455,7 @@ class M3UParser:
                 comma_idx = line.rfind(',')
                 name = line[:comma_idx].strip()
                 url_part = line[comma_idx+1:].strip()
-                group = "未分类"
+                group = "其他"
                 for sep in ['#', '$', '|']:
                     if sep in url_part:
                         parts = url_part.split(sep, 1)
@@ -467,7 +465,7 @@ class M3UParser:
                 if url_part.startswith(('http://', 'https://', 'rtmp://', 'rtsp://')):
                     channels.append(Channel(name=name or f"频道_{i}", url=url_part, group=group, source_file=source_name))
             elif line.startswith(('http://', 'https://')):
-                channels.append(Channel(name=f"频道_{i}", url=line, group="未分类", source_file=source_name))
+                channels.append(Channel(name=f"频道_{i}", url=line, group="其他", source_file=source_name))
         return channels
 
 # ============ HTTP测速器 ============
@@ -616,8 +614,48 @@ class VLCTester:
 
 # ============ 数据处理器 ============
 class DataProcessor:
+    # 六大分组关键词定义
+    GROUP_RULES = {
+        "央视": {
+            "priority": 1,
+            "match": lambda name: name.upper().startswith("CCTV") or name.upper().startswith("CGTN")
+        },
+        "卫视": {
+            "priority": 2,
+            "match": lambda name: "卫视" in name
+        },
+        "港澳台": {
+            "priority": 3,
+            "keywords": ["凤凰", "tvb", "翡翠", "明珠", "澳视", "澳亚", "台湾", "东森", "中天", "民视", 
+                        "三立", "viu", "now", "港", "澳", "台", "香港", "澳门"]
+        },
+        "国外": {
+            "priority": 4,
+            "keywords": ["bbc", "nbc", "abc", "discovery", "national", "history", "nhk", "kbs", "tvbs",
+                        "hbo", "cnn", "fox", "espn", "nba", "mtv", "vh1", "nick", "disney",
+                        " bloomberg", "france", "deutsche", "russia", "aljazeera", "dw", "tv5",
+                        "日本", "韩国", "美国", "英国", "法国", "德国", "俄罗斯", "新加坡"]
+        },
+        "地方台": {
+            "priority": 5,
+            "keywords": ["北京", "上海", "广东", "深圳", "广州", "四川", "成都", "湖南", "长沙",
+                        "浙江", "杭州", "江苏", "南京", "苏州", "山东", "济南", "青岛", "河南",
+                        "郑州", "河北", "石家庄", "湖北", "武汉", "江西", "南昌", "广西", "南宁",
+                        "云南", "昆明", "贵州", "贵阳", "海南", "海口", "辽宁", "沈阳", "大连",
+                        "吉林", "长春", "黑龙江", "哈尔滨", "陕西", "西安", "甘肃", "兰州",
+                        "青海", "西宁", "宁夏", "银川", "新疆", "乌鲁木齐", "西藏", "拉萨",
+                        "内蒙古", "呼和浩特", "山西", "太原", "福建", "福州", "厦门", "安徽",
+                        "合肥", "重庆", "天津"]
+        },
+        "其他": {
+            "priority": 6,
+            "match": lambda name: True  # 兜底
+        }
+    }
+
     @staticmethod
     def deduplicate(channels):
+        """基于名称+URL去重"""
         seen = set()
         unique = []
         dup = 0
@@ -631,60 +669,112 @@ class DataProcessor:
         return unique, dup
 
     @staticmethod
+    def classify_channel(name):
+        """根据频道名称判断所属分组"""
+        name_clean = name.strip()
+        name_lower = name_clean.lower()
+
+        # 央视 - CCTV/CGTN开头
+        if name_clean.upper().startswith("CCTV") or name_clean.upper().startswith("CGTN"):
+            return "央视"
+
+        # 卫视
+        if "卫视" in name_clean:
+            return "卫视"
+
+        # 港澳台
+        hk_tw_keywords = ["凤凰", "tvb", "翡翠", "明珠", "澳视", "澳亚", "台湾", "东森", "中天", 
+                         "民视", "三立", "viu", "now", "香港", "澳门"]
+        for kw in hk_tw_keywords:
+            if kw in name_lower:
+                return "港澳台"
+
+        # 国外
+        foreign_keywords = ["bbc", "nbc", "abc", "discovery", "national", "history", "nhk", "kbs", 
+                           "tvbs", "hbo", "cnn", "fox", "espn", "nba", "mtv", "vh1", "nick", 
+                           "disney", "bloomberg", "france", "deutsche", "russia", "aljazeera", 
+                           "dw", "tv5", "日本", "韩国", "美国", "英国", "法国", "德国", 
+                           "俄罗斯", "新加坡"]
+        for kw in foreign_keywords:
+            if kw in name_lower:
+                return "国外"
+
+        # 地方台
+        local_keywords = ["北京", "上海", "广东", "深圳", "广州", "四川", "成都", "湖南", "长沙",
+                         "浙江", "杭州", "江苏", "南京", "苏州", "山东", "济南", "青岛", "河南",
+                         "郑州", "河北", "石家庄", "湖北", "武汉", "江西", "南昌", "广西", "南宁",
+                         "云南", "昆明", "贵州", "贵阳", "海南", "海口", "辽宁", "沈阳", "大连",
+                         "吉林", "长春", "黑龙江", "哈尔滨", "陕西", "西安", "甘肃", "兰州",
+                         "青海", "西宁", "宁夏", "银川", "新疆", "乌鲁木齐", "西藏", "拉萨",
+                         "内蒙古", "呼和浩特", "山西", "太原", "福建", "福州", "厦门", "安徽",
+                         "合肥", "重庆", "天津"]
+        for kw in local_keywords:
+            if kw in name_clean:
+                return "地方台"
+
+        # 兜底：其他
+        return "其他"
+
+    @staticmethod
     def auto_classify(channels):
-        keywords = {
-            '央视频道': ['cctv', '中央', '央视', '中国之声', 'cgtn'],
-            '卫视频道': ['卫视', '湖南卫视', '浙江卫视', '东方卫视', '北京卫视', '江苏卫视', '广东卫视'],
-            '港澳台': ['凤凰', 'tvb', '澳视', '台湾', '东森', '中天', '民视', '三立', 'viu', 'now', '港', '澳', '台'],
-            '电影频道': ['电影', '影院', 'hbo', 'fox', 'movie', 'film', '影视', '好莱坞'],
-            '体育频道': ['体育', 'espn', 'nba', '足球', '高尔夫', '网球', '赛车', 'sport', '劲爆'],
-            '少儿频道': ['少儿', '卡通', '动画', '动漫', 'kid', 'baby', '迪士尼', 'nick', '嘉佳'],
-            '新闻频道': ['新闻', 'news', '资讯', '财经', 'bloomberg', 'cnn'],
-            '地方频道': ['北京', '上海', '广东', '深圳', '四川', '湖南', '浙江', '江苏', '山东', '河南', '湖北'],
-            '国际频道': ['bbc', 'nbc', 'abc', 'discovery', 'national', 'history', 'nhk', 'kbs', 'tvbs'],
-            '音乐频道': ['音乐', 'mtv', 'vh1', 'music', '演唱会'],
-            '4K/8K超清': ['4k', '8k', 'uhd', '超清', 'hdr'],
-        }
+        """自动分类到6大分组"""
         for ch in channels:
-            if ch.group and ch.group != "未分类":
-                continue
-            name_lower = ch.name.lower()
-            for group, keys in keywords.items():
-                if any(k in name_lower for k in keys):
-                    ch.group = group
-                    break
-            else:
-                ch.group = "其他"
+            ch.group = DataProcessor.classify_channel(ch.name)
         return channels
 
     @staticmethod
     def keep_fastest_per_channel(channels):
+        """同名频道只保留速度最快的1个"""
         groups = defaultdict(list)
         for ch in channels:
+            # 标准化名称用于匹配（去除HD/4K等后缀）
             norm = re.sub(r'\s*(hd|fhd|uhd|4k|8k|1080p|720p|\d+p)\s*$', '', ch.name.lower(), flags=re.I)
             norm = re.sub(r'\s*\[.*?\]\s*', '', norm)
             norm = re.sub(r'\s*\(.*?\)\s*', '', norm)
-            groups[norm.strip()].append(ch)
+            norm = norm.strip()
+            groups[norm].append(ch)
 
         fastest = []
         removed = 0
         for norm_name, ch_list in groups.items():
             if not ch_list:
                 continue
+            # 排序：可用优先，然后按响应时间从小到大
             ch_list.sort(key=lambda c: (not c.is_available, c.best_response_time))
             fastest.append(ch_list[0])
             removed += len(ch_list) - 1
         return fastest, removed
 
     @staticmethod
-    def classify(channels):
+    def remove_unavailable(channels):
+        """删除测速超时的不可用频道"""
+        available = [c for c in channels if c.is_available]
+        removed = len(channels) - len(available)
+        return available, removed
+
+    @staticmethod
+    def sort_by_first_letter(channels):
+        """按频道名称首字母排序"""
+        return sorted(channels, key=lambda c: c.name.lower())
+
+    @staticmethod
+    def classify_and_sort(channels):
+        """分类并按首字母排序，返回6大分组的字典"""
+        # 先分类
         groups = defaultdict(list)
         for ch in channels:
-            g = ch.group.strip() if ch.group.strip() else "未分类"
+            g = ch.group if ch.group in DataProcessor.GROUP_RULES else "其他"
             groups[g].append(ch)
-        for g in groups:
-            groups[g].sort(key=lambda c: c.name.lower())
-        return dict(sorted(groups.items(), key=lambda x: x[0].lower()))
+
+        # 按优先级排序分组
+        priority_order = {k: v["priority"] for k, v in DataProcessor.GROUP_RULES.items()}
+
+        # 每个分组内按首字母排序
+        result = {}
+        for group_name in sorted(groups.keys(), key=lambda x: priority_order.get(x, 99)):
+            result[group_name] = DataProcessor.sort_by_first_letter(groups[group_name])
+
+        return result
 
 # ============ 导出器 ============
 class Exporter:
@@ -699,7 +789,7 @@ class Exporter:
             f2.write(f'#EXTINF:-1,整理时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
             f2.write(f'#EXTINF:-1,总频道数: {len(channels)}\n\n')
 
-            classified = DataProcessor.classify(channels)
+            classified = DataProcessor.classify_and_sort(channels)
             for group_name, group_chs in classified.items():
                 f2.write(f'\n# === {group_name} ({len(group_chs)}个) ===\n')
                 for ch in group_chs:
@@ -726,7 +816,7 @@ class Exporter:
         with open(path, 'w', encoding='utf-8') as f2:
             f2.write(f'# M3U源整理结果\n')
             f2.write(f'# 时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n\n')
-            classified = DataProcessor.classify(channels)
+            classified = DataProcessor.classify_and_sort(channels)
             for group_name, group_chs in classified.items():
                 f2.write(f'\n# === {group_name} ===\n')
                 for ch in group_chs:
@@ -738,7 +828,7 @@ class Exporter:
     @staticmethod
     def export_json(channels, path):
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-        classified = DataProcessor.classify(channels)
+        classified = DataProcessor.classify_and_sort(channels)
         data = {
             'meta': {
                 'time': datetime.now().isoformat(),
@@ -748,7 +838,8 @@ class Exporter:
             'groups': {
                 g: [{'name': c.name, 'url': c.url, 'group': c.group, 'logo': c.logo,
                      'tvg_id': c.tvg_id, 'tvg_name': c.tvg_name,
-                     'available': c.is_available, 'response_time': (c.best_response_time if c.best_response_time < 99999 else None),
+                     'available': c.is_available, 
+                     'response_time': (c.best_response_time if c.best_response_time < 99999 else None),
                      'test_method': c.test_method, 'test_time': c.test_time,
                      'source_file': c.source_file}
                     for c in cls]
@@ -773,65 +864,10 @@ class M3UScannerApp:
         self.is_filtered = False
         self.is_classified = False
 
-    def backup_last_result(self):
-        """扫描前备份 List 目录的上次结果到 Backups"""
-        if not os.path.exists(LIST_DIR):
-            return
-        files = [f for f in os.listdir(LIST_DIR) 
-                 if f.endswith(('.m3u', '.m3u8', '.txt', '.json'))]
-        if not files:
-            return
-
-        # 创建带时间戳的子目录
-        backup_subdir = os.path.join(BACKUPS_DIR, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-        os.makedirs(backup_subdir, exist_ok=True)
-
-        Term.log("INFO", f"备份上次扫描结果到: {backup_subdir}")
-        for fname in files:
-            src = os.path.join(LIST_DIR, fname)
-            dst = os.path.join(backup_subdir, fname)
-            shutil.copy2(src, dst)
-            os.remove(src)
-            Term.log("INFO", f"  已备份: {fname}")
-        Term.log("SUCCESS", f"备份完成: {len(files)} 个文件")
-
-    def load_backup_prompt(self):
-        """启动时询问是否加载 Backups 中的上次结果"""
-        # 获取所有备份子目录（按时间排序）
-        if not os.path.exists(BACKUPS_DIR):
-            return
-        backup_dirs = sorted([d for d in os.listdir(BACKUPS_DIR) 
-                              if os.path.isdir(os.path.join(BACKUPS_DIR, d))], reverse=True)
-        if not backup_dirs:
-            return
-
-        latest_backup = os.path.join(BACKUPS_DIR, backup_dirs[0])
-        backup_files = [f for f in os.listdir(latest_backup)
-                        if f.endswith(('.m3u', '.m3u8', '.txt'))]
-        if not backup_files:
-            return
-
-        print()
-        print(Term.color(f"  📦 发现上次扫描备份 ({backup_dirs[0]}):", Term.YELLOW))
-        for f in backup_files:
-            print(f"     • {f}")
-        print()
-
-        if self._confirm("是否将上次备份结果追加到当前扫描中?"):
-            for fname in backup_files:
-                fpath = os.path.join(latest_backup, fname)
-                Term.log("INFO", f"加载备份: {fname}")
-                chs = M3UParser.parse_file(fpath)
-                self.channels.extend(chs)
-                self.processed_channels.extend(chs)
-                self.loaded_files.append(f"[备份]{fname}")
-            Term.log("SUCCESS", f"已追加 {len(backup_files)} 个备份文件")
-            self._wait_key()
-
     def _draw_header(self):
         print(Term.color("╔══════════════════════════════════════════════════════════════╗", Term.CYAN))
-        print(Term.color("║", Term.CYAN) + Term.color("           M3U源扫描整理工具 v3.0 - 终端版                  ", Term.YELLOW, bold=True) + Term.color("║", Term.CYAN))
-        print(Term.color("║", Term.CYAN) + Term.color("  多源加载 | HTTP/VLC测速 | 台标EPG | 分类导出                ", Term.DIM) + Term.color("║", Term.CYAN))
+        print(Term.color("║", Term.CYAN) + Term.color("           M3U源扫描整理工具 v3.1 - 终端版                  ", Term.YELLOW, bold=True) + Term.color("║", Term.CYAN))
+        print(Term.color("║", Term.CYAN) + Term.color("  6大分组 | 首字母排序 | 去重留快 | 自动删超时                ", Term.DIM) + Term.color("║", Term.CYAN))
         print(Term.color("╚══════════════════════════════════════════════════════════════╝", Term.CYAN))
         print()
 
@@ -864,13 +900,13 @@ class M3UScannerApp:
         print(Term.color("  ├────────────────────────────────────────────────────────┤", Term.CYAN))
 
         items = [
-            ("1", "📂 加载本地文件", "从 tests/ 目录读取"),
+            ("1", "📂 加载本地文件", "从 Capture/ 目录读取"),
             ("2", "🌐 加载GitHub链接", "支持多个链接批量下载"),
             ("3", "🧹 去重处理", "移除重复频道"),
             ("4", "🔬 HTTP快速测速", "并发HTTP请求测试"),
             ("5", "🎬 VLC真实测试", "VLC实际播放验证"),
             ("6", "⚡ 筛选最快源", "每频道保留最优"),
-            ("7", "🏷️  智能分类+台标", "自动归类并匹配台标"),
+            ("7", "🏷️  智能分类+台标", "6大分组+首字母排序"),
             ("8", "📡 EPG节目单", "下载/更新EPG数据"),
             ("9", "💾 导出到 List/", "M3U/TXT/JSON"),
             ("10", "🚀 一键全自动", "全流程自动处理"),
@@ -901,10 +937,63 @@ class M3UScannerApp:
         r = input(Term.color(f"  {msg} (y/n): ", Term.YELLOW)).strip().lower()
         return r in ('y', 'yes', '是', '1')
 
+    def backup_last_result(self):
+        """扫描前备份 List 目录的上次结果到 Backups"""
+        if not os.path.exists(LIST_DIR):
+            return
+        files = [f for f in os.listdir(LIST_DIR) 
+                 if f.endswith(('.m3u', '.m3u8', '.txt', '.json'))]
+        if not files:
+            return
+
+        backup_subdir = os.path.join(BACKUPS_DIR, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+        os.makedirs(backup_subdir, exist_ok=True)
+
+        Term.log("INFO", f"备份上次扫描结果到: {backup_subdir}")
+        for fname in files:
+            src = os.path.join(LIST_DIR, fname)
+            dst = os.path.join(backup_subdir, fname)
+            shutil.copy2(src, dst)
+            os.remove(src)
+            Term.log("INFO", f"  已备份: {fname}")
+        Term.log("SUCCESS", f"备份完成: {len(files)} 个文件")
+
+    def load_backup_prompt(self):
+        """启动时询问是否加载 Backups 中的上次结果"""
+        if not os.path.exists(BACKUPS_DIR):
+            return
+        backup_dirs = sorted([d for d in os.listdir(BACKUPS_DIR) 
+                              if os.path.isdir(os.path.join(BACKUPS_DIR, d))], reverse=True)
+        if not backup_dirs:
+            return
+
+        latest_backup = os.path.join(BACKUPS_DIR, backup_dirs[0])
+        backup_files = [f for f in os.listdir(latest_backup)
+                        if f.endswith(('.m3u', '.m3u8', '.txt'))]
+        if not backup_files:
+            return
+
+        print()
+        print(Term.color(f"  📦 发现上次扫描备份 ({backup_dirs[0]}):", Term.YELLOW))
+        for f in backup_files:
+            print(f"     • {f}")
+        print()
+
+        if self._confirm("是否将上次备份结果追加到当前扫描中?"):
+            for fname in backup_files:
+                fpath = os.path.join(latest_backup, fname)
+                Term.log("INFO", f"加载备份: {fname}")
+                chs = M3UParser.parse_file(fpath)
+                self.channels.extend(chs)
+                self.processed_channels.extend(chs)
+                self.loaded_files.append(f"[备份]{fname}")
+            Term.log("SUCCESS", f"已追加 {len(backup_files)} 个备份文件")
+            self._wait_key()
+
     def action_load_local(self):
         Term.clear()
         self._draw_header()
-        print(Term.color("  📂 加载本地文件 (tests/ 目录)", Term.YELLOW, bold=True))
+        print(Term.color("  📂 加载本地文件 (Capture/ 目录)", Term.YELLOW, bold=True))
         print()
 
         if not os.path.exists(CAPTURE_DIR):
@@ -914,7 +1003,7 @@ class M3UScannerApp:
                  if f.endswith(('.m3u', '.m3u8', '.txt'))]
 
         if not files:
-            Term.log("WARN", f"tests/ 目录中没有 .m3u/.m3u8/.txt 文件")
+            Term.log("WARN", f"Capture/ 目录中没有 .m3u/.m3u8/.txt 文件")
             print(f"\n  提示: 请将源文件放入 {CAPTURE_DIR}")
             self._wait_key()
             return
@@ -1127,11 +1216,11 @@ class M3UScannerApp:
         if self.config.get('apply_logo', True):
             self.processed_channels = LogoDB.apply_logos(self.processed_channels)
 
-        classified = DataProcessor.classify(self.processed_channels)
+        classified = DataProcessor.classify_and_sort(self.processed_channels)
         Term.log("SUCCESS", f"分类完成: {len(classified)} 个分组")
         for g, chs in classified.items():
             avail = sum(1 for c in chs if c.is_available)
-            print(f"    📁 {g:<12} {len(chs):>3} 个 (可用: {avail})")
+            print(f"    📁 {g:<6} {len(chs):>3} 个 (可用: {avail})")
 
         self._wait_key()
 
@@ -1180,6 +1269,15 @@ class M3UScannerApp:
             self._wait_key()
             return
 
+        # 备份上次结果
+        self.backup_last_result()
+
+        # 导出前删除超时/不可用的频道
+        before_filter = len(self.processed_channels)
+        self.processed_channels, removed_timeout = DataProcessor.remove_unavailable(self.processed_channels)
+        if removed_timeout > 0:
+            Term.log("INFO", f"删除超时频道: {removed_timeout} 个")
+
         base = datetime.now().strftime("%Y-%m-%d")
 
         print(Term.color("  选择导出格式 (可多选，如: 1 2 3):", Term.CYAN))
@@ -1204,14 +1302,14 @@ class M3UScannerApp:
         for fmt in formats:
             if fmt == 'm3u':
                 Exporter.export_m3u(self.processed_channels, 
-                                   os.path.join(LIST_DIR, f"{base}_sorted.m3u"),
+                                   os.path.join(LIST_DIR, f"{base}.m3u"),
                                    epg_url=epg_url)
             elif fmt == 'txt':
                 Exporter.export_txt(self.processed_channels, 
-                                   os.path.join(LIST_DIR, f"{base}_sorted.txt"))
+                                   os.path.join(LIST_DIR, f"{base}.txt"))
             elif fmt == 'json':
                 Exporter.export_json(self.processed_channels, 
-                                    os.path.join(LIST_DIR, f"{base}_sorted.json"))
+                                    os.path.join(LIST_DIR, f"{base}.json"))
 
         Term.log("SUCCESS", f"导出完成! 保存在: {LIST_DIR}")
         self._wait_key()
@@ -1240,14 +1338,14 @@ class M3UScannerApp:
 
         # 1. 去重
         print()
-        Term.log("INFO", "[1/6] 去重处理...")
+        Term.log("INFO", "[1/7] 去重处理...")
         self.processed_channels, dup = DataProcessor.deduplicate(self.processed_channels)
         self.is_deduplicated = True
         Term.log("SUCCESS", f"去重: 移除 {dup} 个重复")
 
         # 2. 智能分类+台标
         print()
-        Term.log("INFO", "[2/6] 智能分类 + 台标匹配...")
+        Term.log("INFO", "[2/7] 智能分类 + 台标匹配...")
         self.processed_channels = DataProcessor.auto_classify(self.processed_channels)
         if self.config.get('apply_logo', True):
             self.processed_channels = LogoDB.apply_logos(self.processed_channels)
@@ -1256,7 +1354,7 @@ class M3UScannerApp:
         # 3. 测试
         if test_choice == '1':
             print()
-            Term.log("INFO", "[3/6] HTTP快速测速...")
+            Term.log("INFO", "[3/7] HTTP快速测速...")
             tester = HTTPTester(self.config)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -1265,13 +1363,13 @@ class M3UScannerApp:
             self.is_tested = True
         elif test_choice == '2':
             print()
-            Term.log("INFO", "[3/6] VLC真实测试...")
+            Term.log("INFO", "[3/7] VLC真实测试...")
             tester = VLCTester(self.config)
             self.processed_channels = tester.test_all(self.processed_channels)
             self.is_tested = True
         elif test_choice == '3':
             print()
-            Term.log("INFO", "[3/6] HTTP快速测速...")
+            Term.log("INFO", "[3/7] HTTP快速测速...")
             tester = HTTPTester(self.config)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -1280,7 +1378,7 @@ class M3UScannerApp:
 
             http_avail = [c for c in self.processed_channels if c.http_available]
             print()
-            Term.log("INFO", f"[4/6] VLC验证 {len(http_avail)} 个源...")
+            Term.log("INFO", f"[4/7] VLC验证 {len(http_avail)} 个源...")
             tester2 = VLCTester(self.config)
             results = tester2.test_all(http_avail)
             for r in results:
@@ -1291,25 +1389,32 @@ class M3UScannerApp:
             self.is_tested = True
         else:
             print()
-            Term.log("INFO", "[3/6] 跳过测试")
+            Term.log("INFO", "[3/7] 跳过测试")
 
-        # 4. 筛选
+        # 4. 筛选最快源
         print()
-        Term.log("INFO", "[5/6] 筛选最快源...")
+        Term.log("INFO", "[5/7] 筛选最快源...")
         before = len(self.processed_channels)
         self.processed_channels, removed = DataProcessor.keep_fastest_per_channel(self.processed_channels)
         self.is_filtered = True
         Term.log("SUCCESS", f"筛选: {before} → {len(self.processed_channels)} 个")
 
-        # 5. 导出
+        # 5. 删除超时/不可用频道
         print()
-        Term.log("INFO", "[6/6] 导出文件...")
+        Term.log("INFO", "[6/7] 删除超时频道...")
+        before_timeout = len(self.processed_channels)
+        self.processed_channels, removed_timeout = DataProcessor.remove_unavailable(self.processed_channels)
+        Term.log("SUCCESS", f"删除超时: {removed_timeout} 个, 剩余 {len(self.processed_channels)} 个")
+
+        # 6. 导出
+        print()
+        Term.log("INFO", "[7/7] 导出文件...")
         base = datetime.now().strftime("%Y-%m-%d")
         epg_url = EPGManager.get_epg_url(self.config.get('epg_source', 0))
 
-        Exporter.export_m3u(self.processed_channels, os.path.join(LIST_DIR, f"{base}_sorted.m3u"), epg_url)
-        Exporter.export_txt(self.processed_channels, os.path.join(LIST_DIR, f"{base}_sorted.txt"))
-        Exporter.export_json(self.processed_channels, os.path.join(LIST_DIR, f"{base}_sorted.json"))
+        Exporter.export_m3u(self.processed_channels, os.path.join(LIST_DIR, f"{base}.m3u"), epg_url)
+        Exporter.export_txt(self.processed_channels, os.path.join(LIST_DIR, f"{base}.txt"))
+        Exporter.export_json(self.processed_channels, os.path.join(LIST_DIR, f"{base}.json"))
 
         # 统计
         print()
@@ -1317,11 +1422,10 @@ class M3UScannerApp:
         print(Term.color("  ║                    🎉 全自动处理完成!                        ║", Term.GREEN, bold=True))
         print(Term.color("  ╚══════════════════════════════════════════════════════════════╝", Term.GREEN))
 
-        classified = DataProcessor.classify(self.processed_channels)
+        classified = DataProcessor.classify_and_sort(self.processed_channels)
         print()
         for g, chs in classified.items():
-            avail = sum(1 for c in chs if c.is_available)
-            print(f"    📁 {g:<12} {len(chs):>3} 个 (可用: {avail})")
+            print(f"    📁 {g:<6} {len(chs):>3} 个")
 
         print()
         Term.log("SUCCESS", f"总计: {len(self.processed_channels)} 个频道 | 输出: {LIST_DIR}")
