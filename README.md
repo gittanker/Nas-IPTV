@@ -6,10 +6,14 @@
 m3u_scanner_v3.py   ← 主程序
 Capture/            ← GitHub下载的源文件
 List/               ← 导出结果
+  ├── IPTVlist.m3u   ← M3U格式（含EPG链接）
+  ├── IPTVlist.txt   ← TXT格式
+  └── IPTVlist.json  ← JSON格式
 Backups/            ← 历史备份
   └── 2026-09-08_10-21-33/
-      ├── 2026-09-07.m3u
-      └── 2026-09-07.txt
+      ├── IPTVlist.m3u
+      └── IPTVlist.txt
+      └── IPTVlist.json
 Data/
   ├── config.json   ← 设置文件
   ├── logos/        ← 台标缓存
@@ -49,12 +53,6 @@ python 出程序.py
 国外	BBC、NBC、CNN、HBO、ESPN、NHK、迪士尼、日本、韩国、美国等
 地方台	北京、上海、广东、四川、湖南、浙江等省市名称
 其他	以上都不匹配的兜底分组
-
-
-List/
-  ├── 2026-09-09.m3u   ← M3U格式（含EPG链接）
-  ├── 2026-09-09.txt   ← TXT格式
-  └── 2026-09-09.json  ← JSON格式
 
 
 
