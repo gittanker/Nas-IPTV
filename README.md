@@ -4,22 +4,25 @@
 📁 新目录结构
 
 m3u_scanner_v3.py   ← 主程序
+
 Capture/            ← GitHub下载的源文件
+
 List/               ← 导出结果
   ├── IPTVlist.m3u   ← M3U格式（含EPG链接）
   ├── IPTVlist.txt   ← TXT格式
   └── IPTVlist.json  ← JSON格式
+
 Backups/            ← 历史备份
   └── 2026-09-08_10-21-33/
       ├── IPTVlist.m3u
       └── IPTVlist.txt
       └── IPTVlist.json
+
 Data/
   ├── config.json   ← 设置文件
   ├── logos/        ← 台标缓存
   └── epg/          ← EPG缓存
-  
-  
+
 🚀 使用流程
 加载 → 去重 → 分类+台标 → HTTP测速 → VLC验证 → 筛选最快 → 删除超时 → 导出
 导出前自动执行
@@ -32,7 +35,7 @@ python 出程序.py
 # 2. 启动后询问是否追加备份（可选）
 # 3. 加载源文件（本地 Capture/ 或 GitHub 链接）
 # 4. 一键全自动 [10]
-# 5. 结果自动导出到 List/2026-09-08.m3u
+# 5. 结果自动导出到 List/IPTVlist.m3u
 
 
 |  编号 | 名称              | URL                                      |
