@@ -5,43 +5,24 @@
 
 m3u_scanner_v3.py
 ← 主程序
-
 Capture/
-
-
 ← GitHub下载的源文件
-
 List/ 
-
-
 ← 导出结果
-IPTVlist.m3u   
-
-← M3U格式（含EPG链接）
-
-
-IPTVlist.txt   ← TXT格式
-
-
-IPTVlist.json  ← JSON格式
+list.m3u   ← M3U格式（含EPG链接）
+list.txt   ← TXT格式
+list.json  ← JSON格式
 
 Backups/            
-
 ← 历史备份
-026-09-08_10-21-33/
-IPTVlist.m3u
-IPTVlist.txt
-IPTVlist.json
+026-09-20_10-21-33/
+list.m3u
+list.txt
+list.json
 
 Data/
-  
-
 ├── config.json   ← 设置文件
-  
-
 ├── logos/        ← 台标缓存
-  
-
 └── epg/          ← EPG缓存
 
 🚀 使用流程
@@ -56,7 +37,16 @@ python 出程序.py
 # 2. 启动后询问是否追加备份（可选）
 # 3. 加载源文件（本地 Capture/ 或 GitHub 链接）
 # 4. 一键全自动 [10]
-# 5. 结果自动导出到 List/IPTVlist.m3u
+~# 5. 结果自动导出到 List/IPTVlist.m3u~
+
+
+导出效果：
+修改前：2026-09-20.m3u、2026-09-20.txt、2026-09-20.json
+修改后：list.m3u、list.txt、list.json
+顺带将版本号从 v3.1 更新为 v3.2（包括程序头部标题和菜单显示），方便区分版本。
+其余逻辑不变：
+📁 导出位置仍在 List/ 目录
+📦 Backups 备份机制保持正常——下次导出时会自动把上次的 list.m3u 等文件备份到 Backups/ 子目录，避免覆盖丢失
 
 
 |  编号 | 名称              | URL                                      |
@@ -77,7 +67,5 @@ python 出程序.py
 国外	BBC、NBC、CNN、HBO、ESPN、NHK、迪士尼、日本、韩国、美国等
 地方台	北京、上海、广东、四川、湖南、浙江等省市名称
 其他	以上都不匹配的兜底分组
-
-
 
 ~OK~
