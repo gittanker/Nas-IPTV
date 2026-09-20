@@ -7,24 +7,42 @@ m3u_scanner_v3.py
 ← 主程序
 
 Capture/
+
+
 ← GitHub下载的源文件
 
 List/ 
+
+
 ← 导出结果
-IPTVlist.m3u   ← M3U格式（含EPG链接）
+IPTVlist.m3u   
+
+← M3U格式（含EPG链接）
+
+
 IPTVlist.txt   ← TXT格式
+
+
 IPTVlist.json  ← JSON格式
 
-Backups/            ← 历史备份
+Backups/            
+
+← 历史备份
 026-09-08_10-21-33/
 IPTVlist.m3u
 IPTVlist.txt
 IPTVlist.json
 
 Data/
-  ├── config.json   ← 设置文件
-  ├── logos/        ← 台标缓存
-  └── epg/          ← EPG缓存
+  
+
+├── config.json   ← 设置文件
+  
+
+├── logos/        ← 台标缓存
+  
+
+└── epg/          ← EPG缓存
 
 🚀 使用流程
 加载 → 去重 → 分类+台标 → HTTP测速 → VLC验证 → 筛选最快 → 删除超时 → 导出
@@ -62,7 +80,5 @@ python 出程序.py
 
 
 
-OK
-
-
-
+~OK！
+~
