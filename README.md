@@ -80,5 +80,4 @@ python 出程序.py
 
 
 
-~OK！
-~
+~OK~
